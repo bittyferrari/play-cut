@@ -1,0 +1,59 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.venv/
+.venv-mac/
+venv/
+env/
+
+# ---- PyInstaller build output ----
+build/
+dist/
+*.spec
+!packaging/*.spec
+*.manifest
+
+# ---- Downloaded binary dependencies (fetched by setup.bat / tools/fetch_deps.py) ----
+bin/
+*.7z
+*.zip
+
+# ---- Tests / tooling caches ----
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+TEST*.xml
+
+# ---- Logs & temp ----
+*.log
+*.tmp
+tmp/
+
+# ---- Editors / IDE ----
+.idea/
+.vscode/
+*.swp
+
+# ---- OS ----
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---- Media samples (don't commit test videos) ----
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.wmv
+*.flv
+*.ts
