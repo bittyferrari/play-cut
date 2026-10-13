@@ -3,10 +3,11 @@
 手勢（觸控螢幕與滑鼠皆可）
 --------------------------
 左右滑      拉進度（滑動中即時預覽，放開才真正跳過去）
-右半上下滑  音量
-左半上下滑  畫面亮度
-單擊        播放 / 暫停
-雙擊左 1/3  倒退 10 秒；雙擊右 1/3  快轉 10 秒；雙擊中間  全螢幕
+上下滑      音量（整個畫面都可以）
+觸控單指點  播放 / 暫停（點哪裡都一樣，不做雙擊判定）
+觸控兩指點  切換全螢幕
+滑鼠單擊    播放 / 暫停
+滑鼠雙擊左 1/3  倒退 10 秒；右 1/3  快轉 10 秒；中間  全螢幕
 滑鼠中鍵    切換全螢幕
 長按        兩倍速播放（放開恢復）
 """
@@ -27,6 +28,7 @@ from .i18n import tr
 
 DRAG_THRESHOLD = 10          # px，超過才判定為手勢
 DOUBLE_TAP_MS = 300
+TWO_FINGER_TAP_MS = 500      # 兩指點：手指全部離開前的最長時間
 LONG_PRESS_MS = 550
 
 
@@ -235,11 +237,15 @@ class VideoView(MpvWidget):
         self.gesture_enabled = True
 
         self._active = False
-        self._mode: Optional[str] = None      # seek / volume / brightness
+        self._mode: Optional[str] = None      # seek / volume
+        self._is_touch = False                # 這次手勢是不是來自觸控
+        self._multi = False                   # 觸控中出現過第二根手指
+        self._multi_moved = False
+        self._multi_max = 0
+        self._multi_ts = 0.0
         self._p0 = QPointF()
         self._t0 = 0.0
         self._vol0 = 100.0
-        self._bri0 = 0
         self._target = 0.0
         self._last_tap = 0.0
         self._tap_pos = QPointF()
@@ -276,21 +282,44 @@ class VideoView(MpvWidget):
         t = ev.type()
         if t == QEvent.TouchBegin:
             pts = ev.points()
+            self._multi = False
+            self._multi_moved = False
+            self._multi_max = len(pts)
+            self._multi_ts = time.monotonic()
             if len(pts) == 1:
-                self._begin(pts[0].position())
-                ev.accept()
-                return True
-            return super().event(ev)
+                self._begin(pts[0].position(), touch=True)
+            else:
+                self._enter_multi()
+                self._track_multi(pts)
+            ev.accept()
+            return True
         if t == QEvent.TouchUpdate:
             pts = ev.points()
+            if len(pts) >= 2 and not self._multi:
+                self._enter_multi()
+            if self._multi:
+                self._track_multi(pts)
+                ev.accept()
+                return True
             if self._active and pts:
                 self._move(pts[0].position())
                 ev.accept()
                 return True
             return super().event(ev)
         if t in (QEvent.TouchEnd, QEvent.TouchCancel):
+            pts = ev.points()
+            if self._multi:
+                self._track_multi(pts)
+                quick = (time.monotonic() - self._multi_ts) * 1000 < TWO_FINGER_TAP_MS
+                if t == QEvent.TouchEnd and self._multi_max == 2 \
+                        and not self._multi_moved and quick:
+                    # 兩指點一下 = 全螢幕
+                    self.requestFullscreenToggle.emit()
+                    self.doubleTapCenter.emit()
+                self._multi = False
+                ev.accept()
+                return True
             if self._active:
-                pts = ev.points()
                 pos = pts[0].position() if pts else self._p0
                 self._end(pos, cancelled=(t == QEvent.TouchCancel))
                 ev.accept()
@@ -298,9 +327,33 @@ class VideoView(MpvWidget):
             return super().event(ev)
         return super().event(ev)
 
+    def _enter_multi(self):
+        """第二根手指放上來：取消單指手勢，改成追蹤兩指點。"""
+        self._multi = True
+        if self._active:
+            self._long_timer.stop()
+            if self._long_press_active:
+                self._stop_long_press()
+            if self._mode is not None:
+                # 已經在滑了，不算點擊
+                self._multi_moved = True
+                if self._mode == "seek":
+                    self.seek_absolute(self._target, exact=True)
+                    self.seekCommitted.emit(self._target)
+            self._active = False
+            self._mode = None
+
+    def _track_multi(self, pts):
+        self._multi_max = max(self._multi_max, len(pts))
+        for p in pts:
+            if (p.position() - p.pressPosition()).manhattanLength() > DRAG_THRESHOLD * 2:
+                self._multi_moved = True
+
     def mousePressEvent(self, ev):
         if ev.button() == Qt.LeftButton:
-            self._begin(ev.position())
+            # 系統從觸控合成的滑鼠事件也當作觸控（單擊不做雙擊判定）
+            self._begin(ev.position(),
+                        touch=ev.source() != Qt.MouseEventNotSynthesized)
             ev.accept()
             return
         if ev.button() == Qt.MiddleButton:
@@ -369,16 +422,16 @@ class VideoView(MpvWidget):
     # ------------------------------------------------------------------
     # 手勢狀態機
     # ------------------------------------------------------------------
-    def _begin(self, pos: QPointF):
+    def _begin(self, pos: QPointF, touch: bool = False):
         if not self.gesture_enabled:
             return
         self._active = True
+        self._is_touch = touch
         self._mode = None
         self._p0 = QPointF(pos)
         self._t0 = self.position
         self._target = self._t0
         self._vol0 = self.get_volume()
-        self._bri0 = self.get_brightness()
         self._press_ts = time.monotonic()
         self._long_press_active = False
         self._long_timer.start(LONG_PRESS_MS)
@@ -397,7 +450,7 @@ class VideoView(MpvWidget):
             if abs(dx) >= abs(dy):
                 self._mode = "seek"
             else:
-                self._mode = "volume" if self._p0.x() > self.width() / 2 else "brightness"
+                self._mode = "volume"
 
         if self._mode == "seek":
             span = self.swipe_span
@@ -416,10 +469,6 @@ class VideoView(MpvWidget):
             vol = max(0.0, min(150.0, self._vol0 - dy / max(1, self.height()) * 200.0))
             self.set_volume(vol)
             self.flash(f"🔊 {vol:.0f}%", bar=vol / 150.0, msec=4000)
-        elif self._mode == "brightness":
-            bri = int(max(-100, min(100, self._bri0 - dy / max(1, self.height()) * 200.0)))
-            self.set_brightness(bri)
-            self.flash(f"☀ {bri:+d}", bar=(bri + 100) / 200.0, msec=4000)
 
     def _end(self, pos: QPointF, cancelled: bool = False):
         self._long_timer.stop()
@@ -438,9 +487,15 @@ class VideoView(MpvWidget):
             self.osd.show_message(f"▶ {fmt_time(self._target, ms=False)}",
                                   "", None, 600)
             return
-        if mode in ("volume", "brightness"):
+        if mode == "volume":
             return
         if was_long:
+            return
+
+        if self._is_touch:
+            # 觸控：單指點哪裡都是播放 / 暫停，不做雙擊判定
+            self._last_tap = 0.0
+            self._single_tap()
             return
 
         # 單擊 / 雙擊

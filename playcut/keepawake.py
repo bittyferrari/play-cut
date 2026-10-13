@@ -1,4 +1,4 @@
-"""全螢幕播放時，避免螢幕關閉 / 電腦進入睡眠。
+"""播放中（或全螢幕）時，避免螢幕關閉 / 電腦進入睡眠。
 
 Windows：SetThreadExecutionState（要在同一條執行緒（GUI 執行緒）開關）。
 macOS  ：背景跑 `caffeinate -d -i -w <pid>`，程式結束時它也會自己結束。

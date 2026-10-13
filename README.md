@@ -9,7 +9,7 @@ Four reasons it exists:
 | What you want | How PlayCut does it |
 |---|---|
 | Playback speed control | 0.25×–4× from the dropdown or `[` `]`, or type a number directly. Press and hold on the video = temporary 2× speed |
-| Touch swipe to seek | Single-finger left/right swipe on a touchscreen; up/down = volume / brightness; two-finger touchpad gestures work too |
+| Touch swipe to seek | Single-finger left/right swipe on a touchscreen; up/down = volume; two-finger tap = full screen; two-finger touchpad gestures work too |
 | Audio delay correction | ±ms box at the bottom, `Ctrl+←` `Ctrl+→` for 50 ms steps, **and it can be baked into the exported file** |
 | Drop flags → export clips | Press `M` to drop a flag: the 1st is a start, the 2nd an end. Exports have a **frame-accurate start, without LosslessCut's offset problem** |
 
@@ -231,10 +231,10 @@ Run `python tools/i18n_keys.py` to list strings that haven't been translated yet
 | Gesture | Action |
 |---|---|
 | Swipe left / right | Seek (live preview while swiping; the jump happens when you let go) |
-| Swipe up / down on the right half | Volume |
-| Swipe up / down on the left half | Screen brightness |
-| Single tap | Play / pause |
-| Double-tap left third · right third · middle | −10 s · +10 s · full screen |
+| Swipe up / down | Volume |
+| One-finger tap (anywhere) / mouse click | Play / pause |
+| Two-finger tap | Toggle full screen |
+| Mouse double-click left third · right third · middle | −10 s · +10 s · full screen |
 | Middle mouse button | Toggle full screen |
 | Long press | Temporary 2× speed, back to normal on release |
 | Two-finger touchpad left-right / up-down | Seek / volume |

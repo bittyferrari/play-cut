@@ -704,7 +704,7 @@ class MainWindow(QMainWindow):
         if on == self._fs_extras:
             return
         self._fs_extras = on
-        keepawake.set_active(on)
+        self._update_keep_awake()
         if on:
             self._last_cursor_pos = QCursor.pos()
             self._hide_cursor()          # 一進全螢幕就先藏起來
@@ -724,6 +724,7 @@ class MainWindow(QMainWindow):
     def hideEvent(self, ev):
         super().hideEvent(ev)
         self._sync_fullscreen_extras()   # 縮到系統匣時也要放掉防休眠
+        self._update_keep_awake()
 
     def _key(self, aid: str) -> str:
         """目前指定給某功能的按鍵（給人看的文字），沒有就回傳空字串。"""
@@ -773,6 +774,13 @@ class MainWindow(QMainWindow):
         v.positionChanged.connect(self._on_position)
         v.durationChanged.connect(self._on_duration)
         v.pausedChanged.connect(self._on_paused)
+        v.endReached.connect(self._update_keep_awake)
+        v.fileLoaded.connect(lambda _p: self._update_keep_awake())
+        # 保險：關檔 / 縮到系統匣等狀況不一定有訊號，定期再檢查一次
+        self._keep_awake_timer = QTimer(self)
+        self._keep_awake_timer.setInterval(3000)
+        self._keep_awake_timer.timeout.connect(self._update_keep_awake)
+        self._keep_awake_timer.start()
         v.speedChanged.connect(self._on_speed)
         v.audioDelayChanged.connect(self._on_audio_delay)
         v.volumeChanged.connect(self._on_volume)
@@ -1011,6 +1019,16 @@ class MainWindow(QMainWindow):
 
     def _on_paused(self, paused: bool):
         self._set_play_button(paused)
+        self._update_keep_awake()
+
+    def _update_keep_awake(self):
+        """播放中（或全螢幕）時不讓螢幕關閉 / 電腦睡眠；暫停、播完、縮到系統匣就恢復。"""
+        if not hasattr(self, "video"):   # 建構中還沒準備好
+            return
+        on = bool(getattr(self, "_fs_extras", False))
+        if not on and self.isVisible():
+            on = self.video.is_playing()
+        keepawake.set_active(on)
 
     def _set_play_button(self, paused: bool):
         """暫停中 = 藍底白色 ▶（提醒按下去會播放）；播放中 = 灰底 ❚❚。"""
@@ -1778,9 +1796,10 @@ def _debug_log(msg: str) -> None:
 
 HELP_GESTURES = N_("""<b>觸控手勢（觸控螢幕 / 滑鼠皆可）</b><br>
 • 左右滑 —— 拉進度條（滑動中即時預覽，放開才真的跳過去）<br>
-• 右半邊上下滑 —— 音量；左半邊上下滑 —— 畫面亮度<br>
-• 單擊 —— 播放 / 暫停<br>
-• 雙擊左 1/3 —— 倒退 10 秒；雙擊右 1/3 —— 快轉 10 秒；雙擊中間 —— 全螢幕<br>
+• 上下滑 —— 音量<br>
+• 觸控單指點（點哪裡都一樣）/ 滑鼠單擊 —— 播放 / 暫停<br>
+• 觸控兩指點 —— 切換全螢幕<br>
+• 滑鼠雙擊左 1/3 —— 倒退 10 秒；右 1/3 —— 快轉 10 秒；中間 —— 全螢幕<br>
 • 滑鼠中鍵 —— 切換全螢幕<br>
 • 長按 —— 兩倍速播放，放開恢復<br>
 • 觸控板兩指左右滑 / 滾輪 —— 拉進度、上下 —— 音量<br>

@@ -168,12 +168,13 @@ T = {
     # ---- 主視窗 ----
     "影片檔 (*.mp4 *.mkv *.mov *.avi *.wmv *.flv *.webm *.ts *.m2ts *.mpg *.mpeg *.m4v *.rmvb *.3gp *.vob *.ogv);;所有檔案 (*.*)":
         "Video files (*.mp4 *.mkv *.mov *.avi *.wmv *.flv *.webm *.ts *.m2ts *.mpg *.mpeg *.m4v *.rmvb *.3gp *.vob *.ogv);;All files (*.*)",
-    "<b>觸控手勢（觸控螢幕 / 滑鼠皆可）</b><br>\n• 左右滑 —— 拉進度條（滑動中即時預覽，放開才真的跳過去）<br>\n• 右半邊上下滑 —— 音量；左半邊上下滑 —— 畫面亮度<br>\n• 單擊 —— 播放 / 暫停<br>\n• 雙擊左 1/3 —— 倒退 10 秒；雙擊右 1/3 —— 快轉 10 秒；雙擊中間 —— 全螢幕<br>\n• 滑鼠中鍵 —— 切換全螢幕<br>\n• 長按 —— 兩倍速播放，放開恢復<br>\n• 觸控板兩指左右滑 / 滾輪 —— 拉進度、上下 —— 音量<br>\n":
+    "<b>觸控手勢（觸控螢幕 / 滑鼠皆可）</b><br>\n• 左右滑 —— 拉進度條（滑動中即時預覽，放開才真的跳過去）<br>\n• 上下滑 —— 音量<br>\n• 觸控單指點（點哪裡都一樣）/ 滑鼠單擊 —— 播放 / 暫停<br>\n• 觸控兩指點 —— 切換全螢幕<br>\n• 滑鼠雙擊左 1/3 —— 倒退 10 秒；右 1/3 —— 快轉 10 秒；中間 —— 全螢幕<br>\n• 滑鼠中鍵 —— 切換全螢幕<br>\n• 長按 —— 兩倍速播放，放開恢復<br>\n• 觸控板兩指左右滑 / 滾輪 —— 拉進度、上下 —— 音量<br>\n":
         "<b>Touch gestures (touchscreen or mouse)</b><br>\n"
         "• Swipe left/right — scrub (live preview; jumps when you let go)<br>\n"
-        "• Swipe up/down on the right half — volume; on the left half — brightness<br>\n"
-        "• Tap — play / pause<br>\n"
-        "• Double-tap left third — back 10 s; right third — forward 10 s; center — full screen<br>\n"
+        "• Swipe up/down — volume<br>\n"
+        "• One-finger tap (anywhere) / mouse click — play / pause<br>\n"
+        "• Two-finger tap — toggle full screen<br>\n"
+        "• Mouse double-click left third — back 10 s; right third — forward 10 s; center — full screen<br>\n"
         "• Middle mouse button — toggle full screen<br>\n"
         "• Long press — 2× speed until released<br>\n"
         "• Two-finger trackpad swipe / scroll wheel — left/right scrubs, up/down changes volume<br>\n",

@@ -510,6 +510,15 @@ class MpvWidget(QOpenGLWidget):
         except Exception:
             return True
 
+    def is_playing(self) -> bool:
+        """有開檔、沒暫停、沒停在結尾 → 真的在播放（給防休眠用）。"""
+        try:
+            m = self.mpv
+            return (bool(m.path) and not bool(m.pause)
+                    and not bool(m.idle_active) and not bool(m.eof_reached))
+        except Exception:
+            return False
+
     def seek_absolute(self, t: float, exact: bool = True):
         t = max(0.0, min(t, self._duration or t))
         try:
