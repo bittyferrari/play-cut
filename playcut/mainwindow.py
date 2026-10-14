@@ -1558,6 +1558,12 @@ class MainWindow(QMainWindow):
             a.setChecked(a.data() == sec)
         self.statusBar().showMessage(tr("整個螢幕寬的滑動 = {n} 秒", n=sec), 3000)
 
+    def isFullScreen(self) -> bool:
+        # Windows 上的全螢幕是自己做的（見 winmax），Qt 本身不知道
+        if winmax.CUSTOM_FULLSCREEN:
+            return getattr(self, "_borderless_state", None) is not None
+        return super().isFullScreen()
+
     def toggle_fullscreen(self):
         if self.isFullScreen():
             self.exit_fullscreen()
@@ -1567,14 +1573,26 @@ class MainWindow(QMainWindow):
             self.bottom_bar.hide()        # 全螢幕時隱藏底下的進度條與控制列
             self.menuBar().hide()
             self.statusBar().hide()
-            self._pre_fs_placement = winmax.prepare_fullscreen(self)
-            self.showFullScreen()
+            state = winmax.enter_borderless(self) if winmax.CUSTOM_FULLSCREEN else None
+            if state is not None:
+                self._borderless_state = state
+            else:
+                self._pre_fs_placement = winmax.prepare_fullscreen(self)
+                if winmax.CUSTOM_FULLSCREEN:
+                    # 自製全螢幕失敗：退回 Qt 的全螢幕，isFullScreen 也要跟著走 Qt 的
+                    winmax.CUSTOM_FULLSCREEN = False
+                self.showFullScreen()
         self._sync_fullscreen_extras()
 
     def exit_fullscreen(self):
         if not self.isFullScreen():
             return
-        self.showMaximized()   # 離開全螢幕後回到「最大化」，而不是原本的視窗大小
+        state = getattr(self, "_borderless_state", None)
+        if state is not None:
+            self._borderless_state = None
+            winmax.exit_borderless(self, state)
+        else:
+            self.showMaximized()   # 離開全螢幕後回到「最大化」，而不是原本的視窗大小
         self.menuBar().show()
         self.statusBar().show()
         self.bottom_bar.show()
