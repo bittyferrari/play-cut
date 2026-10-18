@@ -10,7 +10,7 @@ Four reasons it exists:
 |---|---|
 | Playback speed control | 0.25×–4× from the dropdown or `[` `]`, or type a number directly. Press and hold on the video = temporary 2× speed |
 | Touch swipe to seek | Single-finger left/right swipe on a touchscreen; up/down = volume; two-finger tap = full screen; two-finger touchpad gestures work too |
-| Audio delay correction | ±ms box at the bottom, `Ctrl+←` `Ctrl+→` for 50 ms steps, **and it can be baked into the exported file** |
+| Audio delay correction | ±ms box at the bottom, `Ctrl+←` `Ctrl+→` for 10 ms steps (step size adjustable in Settings), **and it can be baked into the exported file** |
 | Drop flags → export clips | Press `M` to drop a flag: the 1st is a start, the 2nd an end. Exports have a **frame-accurate start, without LosslessCut's offset problem** |
 
 ---
@@ -34,6 +34,27 @@ Nothing is unpacked on each launch, so it opens faster and is less likely to be 
 If something goes wrong, launch with **`debug.bat`** instead. It keeps the console window open and prints detailed messages.
 
 > If `setup.bat` fails to download something, it prints the manual download URLs and where to put the files — just follow them.
+
+### Windows on ARM (Snapdragon and other ARM laptops)
+
+Same steps as above — just **install the ARM64 build of Python**
+("Windows installer (ARM64)" on python.org).
+`setup.bat` picks the libmpv and ffmpeg builds that match Python's architecture,
+and `build_folder.bat` names its zip `dist\PlayCut-arm64.zip`.
+
+- x64 Python works too, but then the whole app runs under Windows' x64 emulation and is slower.
+- A project folder copied over from an x64 PC is fine: wrong-architecture files in `bin\`
+  are replaced automatically by `setup.bat` / `build*.bat`.
+- The ARM64 libmpv archive needs 7-Zip to unpack; if 7-Zip isn't installed, the official `7zr.exe` is downloaded automatically.
+- Video is drawn with OpenGL. If you get a black screen on an ARM PC, installing the
+  "OpenCL and OpenGL Compatibility Pack" from the Microsoft Store usually fixes it.
+
+### Building with GitHub Actions (x64 + ARM64)
+
+`.github/workflows/build-windows.yml` builds both versions in the cloud, so you don't need an ARM PC:
+on the GitHub repo page go to **Actions** → **Build Windows** → **Run workflow**,
+then download `PlayCut-win-x64.zip` and `PlayCut-win-arm64.zip` from the Artifacts section at the bottom of the run page.
+Pushing a tag starting with `v` (e.g. `v1.2.0`) also attaches both zips to the matching Release.
 
 ### macOS
 
@@ -116,7 +137,7 @@ A/V sync: smart cut 0–1 ms, no jump at the splice point
 ### Audio delay
 
 When the audio is out of sync, adjust the "Delay" box at the bottom (positive = audio plays later, in ms).
-`Ctrl+←` / `Ctrl+→` change it by ±50 ms; press "0" to reset.
+`Ctrl+←` / `Ctrl+→` or the − / + buttons next to the box change it by ±10 ms; press "0" to reset. The step size can be changed in "Settings → Audio".
 
 When exporting, the dialog asks whether to **apply this delay to the output file**. If you tick it,
 the exported audio matches exactly what you hear in the player (video taken from `[start, end]`, audio from `[start − delay, end − delay]`).
@@ -187,7 +208,7 @@ Closing the window doesn't actually quit PlayCut — it minimizes to the system 
 | `,` `.` | Previous / next frame |
 | `[` `]` | Slower / faster |
 | `Backspace` | Reset to 1× |
-| `Ctrl+←` `Ctrl+→` | Audio delay ±50 ms |
+| `Ctrl+←` `Ctrl+→` | Audio delay ±10 ms |
 | `Ctrl+L` | Load subtitle file |
 | `J` / `V` | Cycle subtitle tracks / show or hide subtitles |
 | `Z` `X` / `Shift+Z` | Subtitle delay ∓100 ms / reset |
@@ -206,9 +227,25 @@ Closing the window doesn't actually quit PlayCut — it minimizes to the system 
 
 Single-key shortcuts are disabled automatically while you type in the note field, so there are no accidental triggers.
 
+### Settings window
+
+"View → Settings…" (`Ctrl+,`) gathers the common options in one place:
+
+| Page | What you can change |
+|---|---|
+| Playback | Seek distances (small / medium / large), speed step, touch swipe sensitivity, paused badge |
+| Audio | Audio delay step (ms), volume step (%) |
+| Subtitles | Subtitle delay step (ms) |
+| Screenshots | Image format, copy to clipboard, save folder |
+| Display | HDR tone mapping, dynamic peak detection, color boost |
+| General | Interface language, minimize to tray on close (Windows) |
+| Shortcuts | Same as "Custom shortcuts" below |
+
+Menu and shortcut names follow the values you set (e.g. "Back 3 s"). Every page has "Restore Page Defaults".
+
 ### Custom shortcuts
 
-"View → Customize Shortcuts…" lets you change the key for every action: click the "Shortcut" cell and press the combination you want;
+"View → Customize Shortcuts…" (or the Shortcuts page of the Settings window) lets you change the key for every action: click the "Shortcut" cell and press the combination you want;
 click ⓧ to clear it (= unassigned). Duplicate keys are highlighted in red and can't be applied.
 A few extra actions with no default key are also available to assign: back / forward 10 seconds, volume ±5, mute.
 Settings are remembered across launches, and button tooltips and the `F1` help show your customized keys.
@@ -252,6 +289,7 @@ PlayCut\
   debug.bat          Launch with error messages printed, for troubleshooting
   build.bat          Package as a single exe
   build_folder.bat   Package as a portable folder (onedir)
+  .github\workflows\build-windows.yml   GitHub Actions: cloud build for x64 + ARM64
   bin\               libmpv-2.dll / ffmpeg.exe / ffprobe.exe (placed automatically by setup)
   playcut\
     __main__.py      Entry point
@@ -263,7 +301,8 @@ PlayCut\
     exporter.py      Three cutting modes + audio delay baking
     subtitles.py     Subtitle parsing / encoding detection / .srt timing and burn-in on export
     exportdialog.py  Export dialog
-    shortcuts.py     Custom shortcuts (settings storage + dialog)
+    shortcuts.py     Custom shortcuts (settings storage + table widget)
+    settingsdialog.py Settings window
     i18n.py          UI localization (tr(), system language detection)
     locales\         Translation tables (en / zh_CN / ja)
     mainwindow.py    Main window
@@ -297,6 +336,7 @@ e.g. `set PLAYCUT_MPV_OPTS=scale=bilinear,video_sync=display-resample`.
 .venv\Scripts\python tests\test_av_sync.py        A/V sync and smooth splice points
 .venv\Scripts\python tests\test_ui_smoke.py       UI / gestures / flag logic
 .venv\Scripts\python tests\test_shortcuts.py      Custom shortcuts / middle-click full screen / hidden controls in full screen
+.venv\Scripts\python tests\test_settings.py       Settings window: step sizes, seek distances, key changes, defaults, persistence
 .venv\Scripts\python tests\test_subtitles.py      Subtitle loading / switching / delay, .srt export and burn-in
 .venv\Scripts\python tests\test_i18n.py           Localization: complete translation tables, UI builds in every language
 .venv\Scripts\python tests\test_screenshot.py     Screenshots: video only / with subtitles, file names, clipboard, fallback folder

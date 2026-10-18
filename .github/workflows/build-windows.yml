@@ -1,0 +1,125 @@
+# 在 GitHub 的雲端 Windows 機器上打包 PlayCut（x64 + ARM64）。
+#
+# 觸發方式：
+#   * 到 GitHub 專案頁面 → Actions → Build Windows → Run workflow（手動）
+#   * 推送 v 開頭的 tag（例如 v1.2.0）：打包完會自動附加到同名的 Release
+#
+# 產出：PlayCut-win-x64.zip、PlayCut-win-arm64.zip
+#   手動執行時：在該次執行頁面最下面的 Artifacts 下載
+#   tag 觸發時：同時上傳到 Releases
+#
+# 內容等同 build_folder.bat（onedir 可攜資料夾 + 精簡 Qt 檔案）。
+
+name: Build Windows
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write   # tag 觸發時要建立 / 更新 Release
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            runner: windows-latest
+          - arch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    name: Windows ${{ matrix.arch }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          architecture: ${{ matrix.arch }}
+
+      - name: Check Python architecture
+        shell: pwsh
+        run: |
+          $m = python -c "import platform;print(platform.machine())"
+          Write-Host "Python machine: $m"
+          $want = @{ x64 = "AMD64"; arm64 = "ARM64" }["${{ matrix.arch }}"]
+          if ($m -ne $want) { throw "Expected $want Python, got $m" }
+
+      - name: Install packages
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt pyinstaller
+
+      - name: Download libmpv / ffmpeg
+        env:
+          PYTHONUTF8: "1"
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python tools/fetch_deps.py --arch ${{ matrix.arch }}
+
+      - name: Build (PyInstaller onedir)
+        shell: pwsh
+        env:
+          PYTHONUTF8: "1"
+        run: |
+          $root = (Get-Location).Path
+          python -m PyInstaller `
+            --noconfirm --clean --onedir --windowed `
+            --name PlayCut `
+            --icon "$root\playcut\resources\icon.ico" `
+            --add-data "$root\playcut\resources;playcut\resources" `
+            --workpath "build\onedir" `
+            --specpath "build\onedir" `
+            --add-binary "$root\bin\libmpv-2.dll;." `
+            --add-binary "$root\bin\ffmpeg.exe;bin" `
+            --add-binary "$root\bin\ffprobe.exe;bin" `
+            --hidden-import playcut `
+            run_app.py
+          if (-not (Test-Path "dist\PlayCut\PlayCut.exe")) { throw "Build failed" }
+
+      - name: Slim Qt files
+        env:
+          PYTHONUTF8: "1"
+        run: python tools/slim_dist.py dist/PlayCut
+
+      - name: Verify architecture of packaged binaries
+        env:
+          PYTHONUTF8: "1"
+        shell: python
+        run: |
+          import sys
+          from pathlib import Path
+          sys.path.insert(0, "tools")
+          from fetch_deps import pe_arch
+          want = "${{ matrix.arch }}"
+          app = Path("dist/PlayCut")
+          checks = [app / "PlayCut.exe",
+                    next(app.rglob("libmpv-2.dll")),
+                    next(app.rglob("ffmpeg.exe")),
+                    next(app.rglob("ffprobe.exe")),
+                    next(app.rglob("Qt6Core.dll"))]
+          bad = False
+          for p in checks:
+              got = pe_arch(p)
+              print(f"{p.relative_to(app)}: {got}")
+              bad |= got != want
+          sys.exit(1 if bad else 0)
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path dist\PlayCut -DestinationPath dist\PlayCut-win-${{ matrix.arch }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PlayCut-win-${{ matrix.arch }}
+          path: dist/PlayCut-win-${{ matrix.arch }}.zip
+          if-no-files-found: error
+
+      - name: Attach to Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/PlayCut-win-${{ matrix.arch }}.zip

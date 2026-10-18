@@ -12,6 +12,19 @@ if not exist "bin\libmpv-2.dll" goto no_deps
 if not exist "bin\ffmpeg.exe" goto no_deps
 if not exist "bin\ffprobe.exe" goto no_deps
 
+rem Make sure bin\ matches this Python's CPU architecture (x64 / ARM64).
+rem Files that are already correct are skipped; wrong-architecture ones
+rem (e.g. a folder copied from an x64 PC to an ARM PC) are re-downloaded.
+echo Checking libmpv / ffmpeg architecture...
+".venv\Scripts\python.exe" tools\fetch_deps.py
+if errorlevel 1 goto no_deps
+
+rem Name the zip after the CPU architecture: PlayCut.zip (x64) or
+rem PlayCut-arm64.zip (Windows on ARM).
+set "ZIPNAME=PlayCut.zip"
+for /f "delims=" %%a in ('call ".venv\Scripts\python.exe" -c "import platform;print(platform.machine())"') do set "PYARCH=%%a"
+if /i "%PYARCH%"=="ARM64" set "ZIPNAME=PlayCut-arm64.zip"
+
 echo Installing PyInstaller...
 ".venv\Scripts\python.exe" -m pip install --upgrade pyinstaller
 if errorlevel 1 goto pyi_failed
@@ -45,15 +58,15 @@ rem (the next build uses --clean anyway).
 if exist "build\onedir" rmdir /s /q "build\onedir"
 
 echo.
-echo Creating dist\PlayCut.zip ...
-if exist "dist\PlayCut.zip" del /q "dist\PlayCut.zip"
-powershell -NoProfile -Command "Compress-Archive -Path 'dist\PlayCut' -DestinationPath 'dist\PlayCut.zip'"
+echo Creating dist\%ZIPNAME% ...
+if exist "dist\%ZIPNAME%" del /q "dist\%ZIPNAME%"
+powershell -NoProfile -Command "Compress-Archive -Path 'dist\PlayCut' -DestinationPath 'dist\%ZIPNAME%'"
 if errorlevel 1 echo [!] Zip step failed - the folder itself is still fine.
 
 echo.
 echo ============================================================
 echo    Done:  dist\PlayCut\PlayCut.exe
-echo           dist\PlayCut.zip  (same folder, zipped)
+echo           dist\%ZIPNAME%  (same folder, zipped)
 echo    Copy the WHOLE dist\PlayCut folder to another PC
 echo    and run PlayCut.exe inside it - no Python needed.
 echo ============================================================

@@ -25,8 +25,9 @@ from . import subtitles as SUB
 from .exportdialog import ExportDialog
 from .ffio import Tools, fmt_time, parse_time, probe
 from .markers import ROLE_AUTO, ROLE_IN, ROLE_OUT, MarkerList
-from .shortcuts import (ShortcutDialog, ShortcutEntry, load_overrides,
-                        save_overrides, seq_text)
+from .settingsdialog import (HDR_CHOICES, SHOT_FORMATS, SettingsDialog, clamp,
+                             load_prefs)
+from .shortcuts import ShortcutEntry, load_overrides, save_overrides
 from .timeline import Timeline
 from .videoview import VideoView
 from . import i18n
@@ -41,7 +42,6 @@ SPEEDS = [0.25, 0.5, 0.75, 0.9, 1.0, 1.1, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0, 4.0,
           5.0, 6.0, 8.0, 10.0]
 MIN_SPEED, MAX_SPEED = 0.1, 10.0
 SPEED_STEPS = [0.1, 0.2, 0.25, 0.5]   # 加速 / 降速一次加減多少
-SHOT_FORMATS = [("png", "PNG"), ("jpg", "JPG")]   # 截圖格式（副檔名, 顯示名稱）
 
 DARK_QSS = """
 QMainWindow, QWidget { background:#1e222a; color:#e6ecf5; }
@@ -96,6 +96,9 @@ class MainWindow(QMainWindow):
         # 快捷鍵：aid -> (QAction, ShortcutEntry)
         self._actions: dict[str, tuple[QAction, ShortcutEntry]] = {}
         self._shortcut_overrides = load_overrides(self.settings)
+        # 名稱會跟著設定變的功能（例如「倒退 {s} 秒」）：aid -> 產生名稱的函式
+        self._dyn_names: dict = {}
+        self._load_step_prefs()
         # 按鈕上的提示文字會顯示目前的快捷鍵，改鍵後要跟著更新
         self._hints: list = []
         # 影片還在載入時先收下的字幕檔，等 file-loaded 再掛上去
@@ -199,9 +202,6 @@ class MainWindow(QMainWindow):
         b = QToolButton(); b.setText("+"); self._hint(b, tr("加速"), "speed_up")
         b.clicked.connect(lambda: self._nudge_speed(1))
         h.addWidget(b)
-        b = QToolButton(); b.setText("1×"); self._hint(b, tr("恢復正常速度"), "speed_reset")
-        b.clicked.connect(lambda: self.video.set_speed(1.0))
-        h.addWidget(b)
 
         h.addSpacing(10)
         lbl_d = QLabel(tr("延遲"))
@@ -210,16 +210,25 @@ class MainWindow(QMainWindow):
         self.spn_delay = QDoubleSpinBox()
         self.spn_delay.setRange(-10000, 10000)
         self.spn_delay.setDecimals(0)
-        self.spn_delay.setSingleStep(10)
+        self.spn_delay.setSingleStep(self._audio_step)
         self.spn_delay.setSuffix(" ms")
         self.spn_delay.setFixedWidth(92)
         self._hints.append(lambda: self.spn_delay.setToolTip(
             tr("正值 = 聲音延後播放。")
-            + tr("{a} / {b} 可快速調整 ±50ms",
+            + tr("{a} / {b} 可快速調整 ±{ms}ms",
                  a=self._key('audio_earlier') or tr('（未設定）'),
-                 b=self._key('audio_later') or tr('（未設定）'))))
+                 b=self._key('audio_later') or tr('（未設定）'),
+                 ms=self._audio_step)))
         self.spn_delay.valueChanged.connect(self._delay_changed)
         h.addWidget(self.spn_delay)
+        b = QToolButton(); b.setText("−")
+        self._hint(b, lambda: tr("聲音提早 {ms}ms", ms=self._audio_step), "audio_earlier")
+        b.clicked.connect(lambda: self._nudge_audio_delay(-1))
+        h.addWidget(b)
+        b = QToolButton(); b.setText("+")
+        self._hint(b, lambda: tr("聲音延後 {ms}ms", ms=self._audio_step), "audio_later")
+        b.clicked.connect(lambda: self._nudge_audio_delay(1))
+        h.addWidget(b)
         b = QToolButton(); b.setText("0"); b.setToolTip(tr("聲音延遲歸零"))
         b.clicked.connect(lambda: self.spn_delay.setValue(0))
         h.addWidget(b)
@@ -263,6 +272,14 @@ class MainWindow(QMainWindow):
         self._hint(self.btn_flag, tr("在目前位置插入旗標"), "add_marker")
         self.btn_flag.clicked.connect(self.add_marker)
         h.addWidget(self.btn_flag)
+
+        # 顯示 / 隱藏旗標面板；勾選狀態在 _build_menu 跟 dock 的 toggleViewAction 同步
+        self.btn_dock = QToolButton()
+        self.btn_dock.setText("☰")
+        self.btn_dock.setCheckable(True)
+        self.btn_dock.setChecked(True)
+        self.btn_dock.setToolTip(tr("顯示旗標面板"))
+        h.addWidget(self.btn_dock)
 
         self.btn_export = QPushButton(tr("匯出"))
         self._hint(self.btn_export, tr("依旗標匯出片段"), "export")
@@ -373,14 +390,15 @@ class MainWindow(QMainWindow):
         C = tr("播放")
         m = mb.addMenu(tr("播放(&P)"))
         self._act(m, C, "play_pause", tr("播放 / 暫停"), "Space", self.video.toggle_pause)
-        self._act(m, C, "back5", tr("倒退 5 秒"), "Left", lambda: self.video.seek_relative(-5))
-        self._act(m, C, "fwd5", tr("快轉 5 秒"), "Right", lambda: self.video.seek_relative(5))
-        self._act(m, C, "back1", tr("倒退 1 秒"), "Shift+Left",
-                  lambda: self.video.seek_relative(-1))
-        self._act(m, C, "fwd1", tr("快轉 1 秒"), "Shift+Right",
-                  lambda: self.video.seek_relative(1))
-        self._act(m, C, "back10", tr("倒退 10 秒"), "", lambda: self.video.seek_relative(-10))
-        self._act(m, C, "fwd10", tr("快轉 10 秒"), "", lambda: self.video.seek_relative(10))
+        # aid 沿用舊名（back5 / back1 / back10…），已存的自訂快捷鍵才不會失效
+        for aid_b, aid_f, key, sc_b, sc_f in (
+                ("back5", "fwd5", "seekMedium", "Left", "Right"),
+                ("back1", "fwd1", "seekSmall", "Shift+Left", "Shift+Right"),
+                ("back10", "fwd10", "seekLarge", "", "")):
+            self._act(m, C, aid_b, lambda p, k=key: tr("倒退 {s} 秒", s=f"{p[k]:g}"), sc_b,
+                      lambda k=key: self.video.seek_relative(-self._prefs[k]))
+            self._act(m, C, aid_f, lambda p, k=key: tr("快轉 {s} 秒", s=f"{p[k]:g}"), sc_f,
+                      lambda k=key: self.video.seek_relative(self._prefs[k]))
         self._act(m, C, "prev_frame", tr("上一格"), ",", lambda: self.video.frame_step(False))
         self._act(m, C, "next_frame", tr("下一格"), ".", lambda: self.video.frame_step(True))
         m.addSeparator()
@@ -389,14 +407,18 @@ class MainWindow(QMainWindow):
         self._act(m, C, "speed_reset", tr("恢復 1×"), "Backspace",
                   lambda: self.video.set_speed(1.0))
         m.addSeparator()
-        self._act(m, C, "vol_up", tr("音量 +5"), "", lambda: self._nudge_volume(5))
-        self._act(m, C, "vol_down", tr("音量 −5"), "", lambda: self._nudge_volume(-5))
+        self._act(m, C, "vol_up", lambda p: tr("音量 +{n}", n=p["volumeStep"]), "",
+                  lambda: self._nudge_volume(self._prefs["volumeStep"]))
+        self._act(m, C, "vol_down", lambda p: tr("音量 −{n}", n=p["volumeStep"]), "",
+                  lambda: self._nudge_volume(-self._prefs["volumeStep"]))
         self._act(m, C, "mute", tr("靜音"), "", self.btn_mute.toggle)
         m.addSeparator()
-        self._act(m, C, "audio_earlier", tr("聲音提早 50ms"), "Ctrl+Left",
-                  lambda: self.spn_delay.setValue(self.spn_delay.value() - 50))
-        self._act(m, C, "audio_later", tr("聲音延後 50ms"), "Ctrl+Right",
-                  lambda: self.spn_delay.setValue(self.spn_delay.value() + 50))
+        self._act(m, C, "audio_earlier",
+                  lambda p: tr("聲音提早 {ms}ms", ms=p["audioDelayStep"]), "Ctrl+Left",
+                  lambda: self._nudge_audio_delay(-1))
+        self._act(m, C, "audio_later",
+                  lambda p: tr("聲音延後 {ms}ms", ms=p["audioDelayStep"]), "Ctrl+Right",
+                  lambda: self._nudge_audio_delay(1))
         m.addSeparator()
         self._act(m, C, "fullscreen", tr("全螢幕"), "F", self.toggle_fullscreen)
         self._act(m, C, "exit_fullscreen", tr("離開全螢幕"), "Esc", self.exit_fullscreen)
@@ -408,10 +430,12 @@ class MainWindow(QMainWindow):
         self._act(m, C, "cycle_sub", tr("切換字幕軌"), "J", self.cycle_subtitle)
         self._act(m, C, "toggle_sub", tr("顯示 / 隱藏字幕"), "V", self.toggle_subtitle)
         m.addSeparator()
-        self._act(m, C, "sub_earlier", tr("字幕提早 100ms"), "Z",
-                  lambda: self._nudge_sub_delay(-0.1))
-        self._act(m, C, "sub_later", tr("字幕延後 100ms"), "X",
-                  lambda: self._nudge_sub_delay(0.1))
+        self._act(m, C, "sub_earlier",
+                  lambda p: tr("字幕提早 {ms}ms", ms=p["subDelayStep"]), "Z",
+                  lambda: self._nudge_sub_delay(-self._prefs["subDelayStep"] / 1000.0))
+        self._act(m, C, "sub_later",
+                  lambda p: tr("字幕延後 {ms}ms", ms=p["subDelayStep"]), "X",
+                  lambda: self._nudge_sub_delay(self._prefs["subDelayStep"] / 1000.0))
         self._act(m, C, "sub_delay_reset", tr("字幕延遲歸零"), "Shift+Z",
                   lambda: self._set_sub_delay(0.0))
         m.addSeparator()
@@ -480,6 +504,9 @@ class MainWindow(QMainWindow):
         act.setText(tr("顯示旗標面板"))
         m.addAction(act)
         self.act_dock = act
+        self.btn_dock.setChecked(act.isChecked())
+        act.toggled.connect(self.btn_dock.setChecked)
+        self.btn_dock.clicked.connect(lambda _=False: act.trigger())
         m.addSeparator()
         sub = m.addMenu(tr("觸控滑動靈敏度（整個螢幕寬 = ？秒）"))
         for sec in (30, 60, 90, 120, 180, 300):
@@ -504,14 +531,8 @@ class MainWindow(QMainWindow):
         sub = m.addMenu(tr("HDR 影片色調映射"))
         group = QActionGroup(self)
         group.setExclusive(True)
-        for mode, label in (
-            ("hable", tr("Hable（柔和，最不易過曝，推薦）")),
-            ("mobius", tr("Mobius（保留中間調，較亮）")),
-            ("reinhard", tr("Reinhard（簡單壓縮亮部）")),
-            ("bt.2390", tr("BT.2390（mpv 預設，較亮）")),
-            ("clip", tr("不轉換（直接裁切，會過曝）")),
-        ):
-            a = sub.addAction(label)
+        for mode, label in HDR_CHOICES:
+            a = sub.addAction(tr(label))
             a.setCheckable(True)
             a.setData(mode)
             group.addAction(a)
@@ -525,6 +546,8 @@ class MainWindow(QMainWindow):
         self.act_hdr_boost.toggled.connect(lambda on: self._set_hdr_boost(on))
         self._hdr_menu = sub
         m.addSeparator()
+        a = self._act(m, C, "settings", tr("設定…"), "Ctrl+,", self.open_settings)
+        a.setMenuRole(QAction.PreferencesRole)     # macOS：放到 App 選單的「設定…」
         self._act(m, C, "customize_shortcuts", tr("自訂快捷鍵…"), "",
                   self.customize_shortcuts)
         m.addSeparator()
@@ -558,10 +581,15 @@ class MainWindow(QMainWindow):
         self._lang_menu = sub
 
     def _language_chosen(self, act: QAction):
-        choice = act.data() or ""
+        self._apply_language_choice(act.data() or "")
+
+    def _apply_language_choice(self, choice: str):
         if choice == i18n.saved_choice(self.settings):
             return
         i18n.save_choice(self.settings, choice)
+        for a in self._lang_menu.actions():
+            if a.isCheckable():
+                a.setChecked((a.data() or "") == choice)
         self.settings.sync()
         new = choice or i18n.detect_system_language()
         cur = i18n.current_language()
@@ -633,8 +661,12 @@ class MainWindow(QMainWindow):
             return False
         return True
 
-    def _act(self, menu: QMenu, category: str, aid: str, text: str,
+    def _act(self, menu: QMenu, category: str, aid: str, text,
              shortcut: str, fn):
+        """text 可以是字串，或是 f(prefs) -> 字串（名稱會跟著設定變）。"""
+        if callable(text):
+            self._dyn_names[aid] = text
+            text = text(self._prefs)
         a = QAction(text, self)
         entry = ShortcutEntry(aid, category, text, shortcut)
         self._actions[aid] = (a, entry)
@@ -733,11 +765,12 @@ class MainWindow(QMainWindow):
             return ""
         return item[0].shortcut().toString(QKeySequence.NativeText)
 
-    def _hint(self, widget, tip: str, aid: str, label: str = ""):
+    def _hint(self, widget, tip, aid: str, label: str = ""):
         """登記一個會跟著快捷鍵更新的提示（label 有給的話按鈕文字也會帶按鍵）。"""
         def upd():
             k = self._key(aid)
-            widget.setToolTip(f"{tip}　({k})" if k else tip)
+            t = tip() if callable(tip) else tip
+            widget.setToolTip(f"{t}　({k})" if k else t)
             if label:
                 widget.setText(f"{label} {k}" if k else label)
         self._hints.append(upd)
@@ -747,14 +780,86 @@ class MainWindow(QMainWindow):
             fn()
 
     def customize_shortcuts(self):
+        self.open_settings(SettingsDialog.PAGE_KEYS)
+
+    # 設定視窗 ---------------------------------------------------------
+    def _load_step_prefs(self):
+        """讀出設定（微調間隔、跳轉秒數…），給快捷鍵與按鈕用。"""
+        self._prefs = load_prefs(self.settings)
+
+    @property
+    def _audio_step(self) -> int:
+        return int(self._prefs["audioDelayStep"])
+
+    def _dyn_name_map(self, prefs: dict) -> dict:
+        return {aid: fn(prefs) for aid, fn in self._dyn_names.items()}
+
+    def _refresh_dyn_names(self):
+        for aid, name in self._dyn_name_map(self._prefs).items():
+            a, e = self._actions[aid]
+            a.setText(name)
+            e.text = name
+        self.spn_delay.setSingleStep(self._audio_step)
+
+    def current_prefs(self) -> dict:
+        return load_prefs(self.settings)
+
+    def open_settings(self, page: int = 0):
         entries = [e for _, e in self._actions.values()]
         current = {aid: a.shortcut().toString(QKeySequence.PortableText)
                    for aid, (a, _) in self._actions.items()}
-        dlg = ShortcutDialog(self, entries, current)
-        if not dlg.exec():
-            return
-        self.apply_shortcuts(dlg.values())
-        self.statusBar().showMessage(tr("快捷鍵已更新"), 4000)
+        dlg = SettingsDialog(self, self.current_prefs(), entries, current,
+                             names_for=self._dyn_name_map, page=page)
+        dlg.applied.connect(self._settings_applied)
+        dlg.exec()
+        dlg.deleteLater()
+
+    def _settings_applied(self, prefs: dict, shortcuts: dict):
+        self.apply_prefs(prefs)
+        self.apply_shortcuts(shortcuts)
+        self.statusBar().showMessage(tr("設定已套用"), 4000)
+
+    def apply_prefs(self, p: dict):
+        """把設定視窗的值套用到播放器並存檔。p 只要有想改的鍵就好。"""
+        old = self.current_prefs()
+        new = dict(old)
+        new.update({k: clamp(k, v) for k, v in p.items() if k in old})
+        s = self.settings
+
+        for k in ("seekSmall", "seekMedium", "seekLarge", "audioDelayStep",
+                  "volumeStep", "subDelayStep"):
+            s.setValue(k, new[k])
+        if new["speedStep"] != old["speedStep"]:
+            self._set_speed_step(float(new["speedStep"]))
+        if new["swipeSpan"] != old["swipeSpan"]:
+            self._set_swipe_span(int(new["swipeSpan"]), self._swipe_menu)
+        self.act_paused_badge.setChecked(bool(new["pausedBadge"]))
+        if hasattr(self, "act_close_to_tray"):
+            self.act_close_to_tray.setChecked(bool(new["closeToTray"]))
+
+        # 截圖
+        s.setValue("screenshotFormat", new["screenshotFormat"])
+        s.setValue("screenshotDir", new["screenshotDir"])
+        self.act_shot_clip.setChecked(bool(new["screenshotClipboard"]))
+        self._sync_screenshot_ui()
+
+        # HDR：有變才重設（會讓 mpv 重新設定濾鏡）
+        hdr = ("hdrToneMapping", "hdrPeakDetect", "hdrBoost")
+        if any(new[k] != old[k] for k in hdr):
+            for act, k in ((self.act_hdr_peak, "hdrPeakDetect"),
+                           (self.act_hdr_boost, "hdrBoost")):
+                act.blockSignals(True)
+                act.setChecked(bool(new[k]))
+                act.blockSignals(False)
+                s.setValue(k, bool(new[k]))
+            self._set_hdr_mode(str(new["hdrToneMapping"]))
+
+        self._load_step_prefs()
+        self._refresh_dyn_names()
+        self._refresh_shortcut_hints()
+
+        if new["language"] != old["language"]:
+            self._apply_language_choice(str(new["language"] or ""))
 
     def apply_shortcuts(self, values: dict):
         """套用並存檔。values = {aid: PortableText}，空字串 = 不指定。"""
@@ -1125,6 +1230,9 @@ class MainWindow(QMainWindow):
         self.video.set_audio_delay(ms / 1000.0)
         self.video.flash(tr("聲音延遲 {ms:+.0f} ms", ms=ms),
                          tr("正值 = 聲音延後") if ms else "", msec=900)
+
+    def _nudge_audio_delay(self, direction: int):
+        self.spn_delay.setValue(self.spn_delay.value() + direction * self._audio_step)
 
     def _nudge_volume(self, delta: int):
         vol = max(0, min(150, self.sld_vol.value() + delta))
@@ -1631,17 +1739,14 @@ class MainWindow(QMainWindow):
         state = self.settings.value("windowState")
         if state:
             self.restoreState(state)
-        span = self.settings.value("swipeSpan", 120, int)
+        span = int(self._prefs["swipeSpan"])
         self.video.swipe_span = float(span)
         for a in self._swipe_menu.actions():
             a.setChecked(a.data() == span)
         self.act_paused_badge.setChecked(
             self.settings.value("pausedBadge", False, bool))
         self._set_paused_badge(self.act_paused_badge.isChecked())
-        step = self.settings.value("speedStep", 0.1, float)
-        if not any(abs(step - s) < 1e-6 for s in SPEED_STEPS):
-            step = 0.1
-        self._set_speed_step(step)
+        self._set_speed_step(float(self._prefs["speedStep"]))
         self.act_hdr_peak.blockSignals(True)
         self.act_hdr_peak.setChecked(self.settings.value("hdrPeakDetect", True, bool))
         self.act_hdr_peak.blockSignals(False)

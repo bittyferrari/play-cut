@@ -9,7 +9,8 @@ from PySide6.QtGui import QColor, QKeySequence
 from PySide6.QtWidgets import (QAbstractItemView, QDialog, QDialogButtonBox,
                                QHBoxLayout, QHeaderView, QKeySequenceEdit,
                                QLabel, QLineEdit, QMessageBox, QPushButton,
-                               QTableWidget, QTableWidgetItem, QVBoxLayout)
+                               QTableWidget, QTableWidgetItem, QVBoxLayout,
+                               QWidget)
 
 from .i18n import tr
 
@@ -64,18 +65,18 @@ def find_conflicts(entries: List[ShortcutEntry],
     return {k: v for k, v in by_key.items() if len(v) > 1}
 
 
-class ShortcutDialog(QDialog):
+class ShortcutEditor(QWidget):
+    """快捷鍵表格（可放進設定視窗，也可單獨用 ShortcutDialog 包起來）。"""
     COL_CAT, COL_NAME, COL_KEY, COL_DEFAULT = range(4)
 
     def __init__(self, parent, entries: List[ShortcutEntry],
                  current: Dict[str, str]):
         super().__init__(parent)
-        self.setWindowTitle(tr("自訂快捷鍵"))
-        self.resize(640, 620)
         self.entries = entries
         self._edits: Dict[str, QKeySequenceEdit] = {}
 
         v = QVBoxLayout(self)
+        v.setContentsMargins(0, 0, 0, 0)
         tip = QLabel(tr("點一下「快捷鍵」欄位，直接按下想要的按鍵組合即可。"
                      "清空 = 不指定快捷鍵。重複的按鍵會標成紅色。"))
         tip.setWordWrap(True)
@@ -113,7 +114,7 @@ class ShortcutDialog(QDialog):
             le = ed.findChild(QLineEdit)
             if le is not None:
                 le.setPlaceholderText(tr("按下按鍵…"))
-            ed.keySequenceChanged.connect(self._update_conflicts)
+            ed.keySequenceChanged.connect(self.update_conflicts)
             self.tbl.setCellWidget(r, self.COL_KEY, ed)
             self._edits[e.aid] = ed
         self.tbl.verticalHeader().setDefaultSectionSize(34)
@@ -126,34 +127,35 @@ class ShortcutDialog(QDialog):
 
         row = QHBoxLayout()
         b = QPushButton(tr("此項恢復預設"))
-        b.clicked.connect(self._reset_selected)
+        b.clicked.connect(self.reset_selected)
         row.addWidget(b)
         b = QPushButton(tr("全部恢復預設"))
-        b.clicked.connect(self._reset_all)
+        b.clicked.connect(self.reset_all)
         row.addWidget(b)
         row.addStretch(1)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText(tr("套用"))
-        bb.button(QDialogButtonBox.Cancel).setText(tr("取消"))
-        bb.accepted.connect(self._try_accept)
-        bb.rejected.connect(self.reject)
-        row.addWidget(bb)
         v.addLayout(row)
+        self.button_row = row      # 給外層加按鈕用
 
-        self._update_conflicts()
+        self.update_conflicts()
 
     # ------------------------------------------------------------------
     def values(self) -> Dict[str, str]:
         return {aid: ed.keySequence().toString(QKeySequence.PortableText)
                 for aid, ed in self._edits.items()}
 
-    def _reset_selected(self):
+    def set_names(self, names: Dict[str, str]):
+        """功能名稱會跟著設定變（例如「倒退 5 秒」→「倒退 3 秒」）。"""
+        for r, e in enumerate(self.entries):
+            if e.aid in names:
+                self.tbl.item(r, self.COL_NAME).setText(names[e.aid])
+
+    def reset_selected(self):
         r = self.tbl.currentRow()
         if 0 <= r < len(self.entries):
             e = self.entries[r]
             self._edits[e.aid].setKeySequence(QKeySequence(e.default))
 
-    def _reset_all(self):
+    def reset_all(self):
         for e in self.entries:
             self._edits[e.aid].setKeySequence(QKeySequence(e.default))
 
@@ -161,10 +163,11 @@ class ShortcutDialog(QDialog):
         t = text.strip().lower()
         for r, e in enumerate(self.entries):
             key = self._edits[e.aid].keySequence().toString(QKeySequence.NativeText)
-            hay = f"{e.category} {e.text} {key}".lower()
+            name = self.tbl.item(r, self.COL_NAME).text()
+            hay = f"{e.category} {name} {key}".lower()
             self.tbl.setRowHidden(r, bool(t) and t not in hay)
 
-    def _update_conflicts(self, *_):
+    def update_conflicts(self, *_):
         conflicts = find_conflicts(self.entries, self.values())
         bad = set()
         for names in conflicts.values():
@@ -180,9 +183,47 @@ class ShortcutDialog(QDialog):
             self.lbl_conflict.setText("")
         return conflicts
 
-    def _try_accept(self):
-        if self._update_conflicts():
-            QMessageBox.warning(self, tr("快捷鍵重複"),
+    def check_ok(self, parent) -> bool:
+        """沒有重複按鍵才回傳 True；有的話跳警告。"""
+        if self.update_conflicts():
+            QMessageBox.warning(parent, tr("快捷鍵重複"),
                                 tr("有功能用了同一個按鍵，請先修正紅色標示的項目。"))
-            return
-        self.accept()
+            return False
+        return True
+
+
+class ShortcutDialog(QDialog):
+    """單獨的快捷鍵視窗（主程式現在改用設定視窗裡的「快捷鍵」頁）。"""
+
+    def __init__(self, parent, entries: List[ShortcutEntry],
+                 current: Dict[str, str]):
+        super().__init__(parent)
+        self.setWindowTitle(tr("自訂快捷鍵"))
+        self.resize(640, 620)
+        self.entries = entries
+        v = QVBoxLayout(self)
+        self.editor = ShortcutEditor(self, entries, current)
+        self._edits = self.editor._edits
+        v.addWidget(self.editor, 1)
+        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb.button(QDialogButtonBox.Ok).setText(tr("套用"))
+        bb.button(QDialogButtonBox.Cancel).setText(tr("取消"))
+        bb.accepted.connect(self._try_accept)
+        bb.rejected.connect(self.reject)
+        self.editor.button_row.addWidget(bb)
+
+    def values(self) -> Dict[str, str]:
+        return self.editor.values()
+
+    def _reset_selected(self):
+        self.editor.reset_selected()
+
+    def _reset_all(self):
+        self.editor.reset_all()
+
+    def _update_conflicts(self, *_):
+        return self.editor.update_conflicts()
+
+    def _try_accept(self):
+        if self.editor.check_ok(self):
+            self.accept()

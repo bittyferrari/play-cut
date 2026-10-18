@@ -8,6 +8,13 @@ set "PYTHONUTF8=1"
 if not exist ".venv\Scripts\python.exe" goto not_installed
 if not exist "bin\libmpv-2.dll" goto no_deps
 
+rem Make sure bin\ matches this Python's CPU architecture (x64 / ARM64).
+rem Files that are already correct are skipped; wrong-architecture ones
+rem (e.g. a folder copied from an x64 PC to an ARM PC) are re-downloaded.
+echo Checking libmpv / ffmpeg architecture...
+".venv\Scripts\python.exe" tools\fetch_deps.py
+if errorlevel 1 goto no_deps
+
 echo Installing PyInstaller...
 ".venv\Scripts\python.exe" -m pip install --upgrade pyinstaller
 if errorlevel 1 goto pyi_failed

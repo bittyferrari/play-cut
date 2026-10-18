@@ -10,7 +10,7 @@
 |---|---|
 | 播放速度調整 | 0.25×–4×，下拉選單或 `[` `]`，也可以直接打數字。長按畫面 = 暫時兩倍速 |
 | 觸控左右滑拉進度 | 觸控螢幕單指左右滑；上下滑 = 音量；兩指點 = 全螢幕；觸控板兩指也可以 |
-| 聲音延遲校正 | 底部有 ±ms 的調整框，`Ctrl+←` `Ctrl+→` 各 50ms，**而且可以烘焙進輸出檔** |
+| 聲音延遲校正 | 底部有 ±ms 的調整框，`Ctrl+←` `Ctrl+→` 各 10ms（間隔可在設定裡改），**而且可以烘焙進輸出檔** |
 | 插旗標 → 匯出片段 | 按 `M` 插旗標，第 1 個是起點、第 2 個是終點，匯出時**起點完全精準，沒有 LosslessCut 的偏移問題** |
 
 ---
@@ -34,6 +34,28 @@
 出問題時改用 **`debug.bat`** 啟動，它會保留命令列視窗並印出詳細訊息。
 
 > `setup.bat` 下載失敗的話，畫面上會列出手動下載的網址與放置位置，照著做就行。
+
+### Windows on ARM（Snapdragon 等 ARM 筆電）
+
+步驟和上面一樣，只要**裝 ARM64 版的 Python**
+（python.org 下載頁的「Windows installer (ARM64)」）。
+`setup.bat` 會依照 Python 的架構自動下載 ARM64 版的 libmpv 與 ffmpeg，
+`build_folder.bat` 的成品則叫做 `dist\PlayCut-arm64.zip`。
+
+- 用 x64 版 Python 也可以，只是整個程式會透過 Windows 的模擬執行，比較慢。
+- 從 x64 電腦整個複製過來的專案資料夾也能用：`bin\` 裡架構不對的檔案會在
+  `setup.bat` / `build*.bat` 時自動換成正確的版本。
+- ARM64 版 libmpv 的壓縮檔需要 7-Zip 才能解開；沒裝 7-Zip 時會自動下載官方的 `7zr.exe`。
+- 畫面是透過 OpenGL 繪製的。ARM 電腦如果出現黑畫面，到 Microsoft Store 安裝
+  「OpenCL and OpenGL Compatibility Pack」通常就能解決。
+
+### 用 GitHub Actions 自動打包（x64 + ARM64）
+
+專案裡附了 `.github/workflows/build-windows.yml`，不需要 ARM 電腦也能做出 ARM64 版：
+到 GitHub 專案頁面 → **Actions** → **Build Windows** → **Run workflow**，
+跑完之後在該次執行頁面最下面的 Artifacts 下載
+`PlayCut-win-x64.zip` 與 `PlayCut-win-arm64.zip`。
+推送 `v` 開頭的 tag（例如 `v1.2.0`）時，兩個 zip 也會自動附加到同名的 Release。
 
 ### macOS
 
@@ -116,7 +138,7 @@
 ### 聲音延遲
 
 影片聲音對不上時，調底部的「延遲」框（正值＝聲音延後播放，單位 ms）。
-`Ctrl+←` / `Ctrl+→` 每次 ±50ms，按「0」歸零。
+`Ctrl+←` / `Ctrl+→` 或延遲欄旁的 − / + 每次 ±10ms，按「0」歸零。每次調整的量可以在「設定 → 聲音」改。
 
 匯出時對話框會問要不要**把這個延遲套用到輸出檔**。勾起來的話，
 輸出檔的聲音就跟你在播放器裡聽到的一模一樣（畫面取 `[起,終]`、聲音取 `[起-延遲, 終-延遲]`）。
@@ -187,7 +209,7 @@
 | `,` `.` | 上一格 / 下一格 |
 | `[` `]` | 降速 / 加速 |
 | `Backspace` | 恢復 1× |
-| `Ctrl+←` `Ctrl+→` | 聲音延遲 ±50ms |
+| `Ctrl+←` `Ctrl+→` | 聲音延遲 ±10ms |
 | `Ctrl+L` | 載入字幕檔 |
 | `J` / `V` | 切換字幕軌 / 顯示或隱藏字幕 |
 | `Z` `X` / `Shift+Z` | 字幕延遲 ∓100ms / 歸零 |
@@ -206,9 +228,25 @@
 
 在備註欄打字時，單鍵快速鍵會自動讓路，不會誤觸。
 
+### 設定視窗
+
+「檢視 → 設定…」（`Ctrl+,`）把常用選項集中在一起：
+
+| 分頁 | 可以改的東西 |
+|---|---|
+| 播放 | 倒退 / 快轉的秒數（小 / 中 / 大三段）、加速 / 降速間隔、觸控滑動靈敏度、暫停標示 |
+| 聲音 | 聲音延遲每次調整幾 ms、音量每次調整幾 % |
+| 字幕 | 字幕延遲每次調整幾 ms |
+| 截圖 | 圖檔格式、複製到剪貼簿、存放資料夾 |
+| 畫面 | HDR 色調映射、動態峰值偵測、色彩增強 |
+| 一般 | 介面語言、關閉時縮到系統匣（Windows） |
+| 快捷鍵 | 同下方「自訂快捷鍵」 |
+
+改了秒數 / 間隔，選單與快捷鍵的名稱會跟著變（例如「倒退 3 秒」）。每一頁都有「恢復本頁預設」。
+
 ### 自訂快捷鍵
 
-「檢視 → 自訂快捷鍵…」可以改每一個功能的按鍵：點「快捷鍵」欄位、直接按下想要的組合即可，
+「檢視 → 自訂快捷鍵…」（或設定視窗的「快捷鍵」頁）可以改每一個功能的按鍵：點「快捷鍵」欄位、直接按下想要的組合即可，
 按 ⓧ 清空 = 不指定。按鍵重複時會標紅色、不能套用。
 另外多了幾個預設沒綁鍵、可以自己指定的功能：倒退 / 快轉 10 秒、音量 ±5、靜音。
 設定會記住，下次開啟照樣生效；按鈕提示與 `F1` 說明也會顯示你改過的按鍵。
@@ -252,6 +290,7 @@ PlayCut\
   debug.bat          有問題時用這個啟動，會印出錯誤訊息
   build.bat          打包成單一 exe
   build_folder.bat   打包成可攜資料夾（onedir）
+  .github\workflows\build-windows.yml   GitHub Actions：雲端打包 x64 + ARM64
   bin\               libmpv-2.dll / ffmpeg.exe / ffprobe.exe（setup 會自動放好）
   playcut\
     __main__.py      進入點
@@ -263,7 +302,8 @@ PlayCut\
     exporter.py      三種剪輯模式 + 聲音延遲烘焙
     subtitles.py     字幕解析 / 編碼偵測 / 匯出時的 .srt 對時與燒錄
     exportdialog.py  匯出對話框
-    shortcuts.py     自訂快捷鍵（設定存取 + 對話框）
+    shortcuts.py     自訂快捷鍵（設定存取 + 表格元件）
+    settingsdialog.py 設定視窗
     i18n.py          介面多語系（tr()、系統語言判斷）
     locales\         各語言翻譯表（en / zh_CN / ja）
     mainwindow.py    主視窗
@@ -297,6 +337,7 @@ PlayCut\
 .venv\Scripts\python tests\test_av_sync.py        影音是否同步、接合點是否平順
 .venv\Scripts\python tests\test_ui_smoke.py       介面 / 手勢 / 旗標邏輯
 .venv\Scripts\python tests\test_shortcuts.py      自訂快捷鍵 / 中鍵全螢幕 / 全螢幕隱藏控制列
+.venv\Scripts\python tests\test_settings.py       設定視窗：微調間隔、跳轉秒數、改鍵、恢復預設、重開讀回
 .venv\Scripts\python tests\test_subtitles.py      字幕載入 / 切換 / 延遲、匯出 .srt 與燒錄
 .venv\Scripts\python tests\test_i18n.py           多語系：翻譯表完整、各語言介面都建得起來
 .venv\Scripts\python tests\test_screenshot.py     截圖：只有影片 / 含字幕、檔名、剪貼簿、寫不進去時改存別處
